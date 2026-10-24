@@ -38,6 +38,7 @@ public class ClipKeyService extends InputMethodService {
     private static final int SPECIAL = 0xFF5F6368;
     private static final int ACCENT = 0xFF8AB4F8;
 
+    // items.get(0) = first copied (number 1), last item = newest
     private final ArrayList<String> items = new ArrayList<>();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private ClipboardManager cm;
@@ -64,7 +65,7 @@ public class ClipKeyService extends InputMethodService {
     @Override
     public void onCreate() {
         super.onCreate();
-        prefs = getSharedPreferences("clips", MODE_PRIVATE);
+        prefs = getSharedPreferences("clips2", MODE_PRIVATE);
         load();
         cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         listener = () -> {
@@ -147,10 +148,11 @@ public class ClipKeyService extends InputMethodService {
 
     private void addClip(String t) {
         if (t.trim().isEmpty()) return;
-        items.remove(t);
-        items.add(0, t);
+        // ignore the same text arriving twice in a row (double signal)
+        if (!items.isEmpty() && items.get(items.size() - 1).equals(t)) return;
+        items.add(t);
         while (items.size() > MAX_ITEMS) {
-            items.remove(items.size() - 1);
+            items.remove(0);
         }
         save();
         if (root != null && showClips) render();
@@ -339,7 +341,6 @@ public class ClipKeyService extends InputMethodService {
             col.addView(charRow("asdfghjkl", true));
         }
 
-        // row 4: shift, letters, delete
         LinearLayout r4 = newRow();
         if (symbols) {
             r4.addView(spacer(1.5f));
@@ -388,7 +389,6 @@ public class ClipKeyService extends InputMethodService {
         r4.addView(del);
         col.addView(r4);
 
-        // row 5: toggle, comma, space, dot, enter
         LinearLayout r5 = newRow();
         Button mode = key(symbols ? "ABC" : "?123", 1.5f, SPECIAL);
         mode.setOnClickListener(v -> {
@@ -434,12 +434,13 @@ public class ClipKeyService extends InputMethodService {
             return;
         }
 
-        ScrollView sv = new ScrollView(this);
+        final ScrollView sv = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(4), 0, dp(4), dp(4));
 
         for (int i = 0; i < items.size(); i++) {
+            final int index = i;
             final String text = items.get(i);
 
             LinearLayout row = new LinearLayout(this);
@@ -454,7 +455,7 @@ public class ClipKeyService extends InputMethodService {
             rlp.setMargins(0, dp(3), 0, dp(3));
             row.setLayoutParams(rlp);
 
-            // number in the left corner
+            // number in the left corner: 1 = first copied
             TextView num = new TextView(this);
             num.setText(String.valueOf(i + 1));
             num.setTextColor(ACCENT);
@@ -485,7 +486,7 @@ public class ClipKeyService extends InputMethodService {
             del.setLayoutParams(new LinearLayout.LayoutParams(
                     dp(44), ViewGroup.LayoutParams.MATCH_PARENT));
             del.setOnClickListener(v -> {
-                items.remove(text);
+                if (index < items.size()) items.remove(index);
                 save();
                 render();
             });
@@ -498,5 +499,7 @@ public class ClipKeyService extends InputMethodService {
         sv.addView(list);
         body.addView(sv, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // show the newest copies at the bottom
+        sv.post(() -> sv.fullScroll(View.FOCUS_DOWN));
     }
 }
