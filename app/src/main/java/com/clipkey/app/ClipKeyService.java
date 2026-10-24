@@ -35,6 +35,7 @@ public class ClipKeyService extends InputMethodService {
 
     private static final int BG = 0xFF202124;
     private static final int KEY = 0xFF3C4043;
+    private static final int KEY_USED = 0xFF55606E;
     private static final int SPECIAL = 0xFF5F6368;
     private static final int ACCENT = 0xFF8AB4F8;
 
@@ -51,6 +52,10 @@ public class ClipKeyService extends InputMethodService {
     private boolean shift = false;
     private boolean symbols = false;
     private boolean showClips = false;
+
+    // remembered place in the clipboard list
+    private int savedScroll = -1;   // -1 = not set yet, go to the bottom
+    private int lastUsed = -1;      // index of the last item you tapped
 
     private final Runnable repeatDelete = new Runnable() {
         @Override
@@ -99,7 +104,6 @@ public class ClipKeyService extends InputMethodService {
     @Override
     public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
-        showClips = false;
         shift = false;
         if (!isPasswordField(info)) {
             String t = readClip();
@@ -153,6 +157,7 @@ public class ClipKeyService extends InputMethodService {
         items.add(t);
         while (items.size() > MAX_ITEMS) {
             items.remove(0);
+            if (lastUsed >= 0) lastUsed--;
         }
         save();
         if (root != null && showClips) render();
@@ -243,6 +248,8 @@ public class ClipKeyService extends InputMethodService {
         if (showClips && !items.isEmpty()) {
             bar.addView(tab("Clear all", false, v -> {
                 items.clear();
+                savedScroll = -1;
+                lastUsed = -1;
                 save();
                 render();
             }));
@@ -420,6 +427,13 @@ public class ClipKeyService extends InputMethodService {
         body.addView(col);
     }
 
+    private GradientDrawable rowBg(int color) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(6));
+        return g;
+    }
+
     private void showClipList() {
         body.removeAllViews();
 
@@ -435,7 +449,7 @@ public class ClipKeyService extends InputMethodService {
         }
 
         final ScrollView sv = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
+        final LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(dp(4), 0, dp(4), dp(4));
 
@@ -443,13 +457,10 @@ public class ClipKeyService extends InputMethodService {
             final int index = i;
             final String text = items.get(i);
 
-            LinearLayout row = new LinearLayout(this);
+            final LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setMinimumHeight(dp(46));
-            GradientDrawable g = new GradientDrawable();
-            g.setColor(KEY);
-            g.setCornerRadius(dp(6));
-            row.setBackground(g);
+            row.setBackground(rowBg(i == lastUsed ? KEY_USED : KEY));
             LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             rlp.setMargins(0, dp(3), 0, dp(3));
@@ -487,19 +498,36 @@ public class ClipKeyService extends InputMethodService {
                     dp(44), ViewGroup.LayoutParams.MATCH_PARENT));
             del.setOnClickListener(v -> {
                 if (index < items.size()) items.remove(index);
+                if (lastUsed == index) lastUsed = -1;
+                else if (lastUsed > index) lastUsed--;
                 save();
                 render();
             });
             row.addView(del);
 
-            row.setOnClickListener(v -> type(text));
+            row.setOnClickListener(v -> {
+                type(text);
+                // remember this place and mark it, without redrawing the list
+                if (lastUsed >= 0 && lastUsed < list.getChildCount()) {
+                    list.getChildAt(lastUsed).setBackground(rowBg(KEY));
+                }
+                lastUsed = index;
+                row.setBackground(rowBg(KEY_USED));
+                savedScroll = sv.getScrollY();
+            });
             list.addView(row);
         }
 
         sv.addView(list);
         body.addView(sv, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        // show the newest copies at the bottom
-        sv.post(() -> sv.fullScroll(View.FOCUS_DOWN));
+
+        // go back to the remembered place (or the bottom the very first time)
+        sv.post(() -> {
+            if (savedScroll >= 0) sv.scrollTo(0, savedScroll);
+            else sv.fullScroll(View.FOCUS_DOWN);
+            // keep the position up to date while you scroll by hand
+            sv.setOnScrollChangeListener((v, x, y, ox, oy) -> savedScroll = y);
+        });
     }
 }
